@@ -1,35 +1,72 @@
 /*
- * Copyright 2026 Google LLC
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Enhanced hash utility
  */
 
-async function digestMessage(message) {
-  const msgUint8 = new TextEncoder().encode(message); // encode as (utf-8) Uint8Array
-  const hashBuffer = await crypto.subtle.digest('SHA-1', msgUint8); // hash the message
-  const hashArray = Array.from(new Uint8Array(hashBuffer)); // convert buffer to byte array
-  const hashHex = hashArray
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join(''); // convert bytes to hex string
-  return {result: hashHex};
+const SUPPORTED_ALGORITHMS = ['SHA-1', 'SHA-256', 'SHA-384', 'SHA-512'];
+const SUPPORTED_ENCODINGS = ['hex', 'base64'];
+
+function bufferToHex(buffer) {
+  return Array.from(new Uint8Array(buffer))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+function bufferToBase64(buffer) {
+  let binary = '';
+  const bytes = new Uint8Array(buffer);
+  const len = bytes.byteLength;
+
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+
+  return btoa(binary);
+}
+
+async function digestMessage(message, algorithm = 'SHA-256', encoding = 'hex') {
+  if (!SUPPORTED_ALGORITHMS.includes(algorithm)) {
+    throw new Error(`Unsupported algorithm: ${algorithm}`);
+  }
+
+  if (!SUPPORTED_ENCODINGS.includes(encoding)) {
+    throw new Error(`Unsupported encoding: ${encoding}`);
+  }
+
+  const msgUint8 = new TextEncoder().encode(message);
+  const hashBuffer = await crypto.subtle.digest(algorithm, msgUint8);
+
+  let result;
+  if (encoding === 'hex') {
+    result = bufferToHex(hashBuffer);
+  } else if (encoding === 'base64') {
+    result = bufferToBase64(hashBuffer);
+  }
+
+  return {
+    algorithm,
+    encoding,
+    result
+  };
 }
 
 window['ai_edge_gallery_get_result'] = async (data) => {
   try {
     const jsonData = JSON.parse(data);
-    return JSON.stringify(await digestMessage(jsonData['text']));
+
+    if (!jsonData.text || typeof jsonData.text !== 'string') {
+      throw new Error('Field "text" must be a non-empty string');
+    }
+
+    const algorithm = jsonData.algorithm || 'SHA-256';
+    const encoding = jsonData.encoding || 'hex';
+
+    const result = await digestMessage(jsonData.text, algorithm, encoding);
+
+    return JSON.stringify(result);
   } catch (e) {
     console.error(e);
-    return JSON.stringify({error: `Failed to calculate hash: ${e.message}`});
+    return JSON.stringify({
+      error: `Failed to calculate hash: ${e.message}`
+    });
   }
 };
